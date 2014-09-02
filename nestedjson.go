@@ -107,11 +107,39 @@ func Decode(b []byte) (*NestedJson, error) {
 	}
 }
 
+func DecodeStr(s string) (*NestedJson, error) {
+	if n, err := Decode([]byte(s)); err == nil {
+		return n, nil
+	} else {
+		return nil, err
+	}
+}
+
 func (n *NestedJson) Encode() ([]byte, error) {
 	return json.Marshal(&n.data)
 }
 
-func (n *NestedJson) Interface(path string) (interface{}, error) {
+func (n *NestedJson) EncodeStr() (string, error) {
+	if b, err := n.Encode(); err == nil {
+		return string(b), nil
+	} else {
+		return "", err
+	}
+}
+
+func (n *NestedJson) EncodePretty() ([]byte, error) {
+	return json.MarshalIndent(&n.data, "", "  ")
+}
+
+func (n *NestedJson) EncodePrettyStr() (string, error) {
+	if b, err := n.EncodePretty(); err == nil {
+		return string(b), nil
+	} else {
+		return "", err
+	}
+}
+
+func (n *NestedJson) Get(path string) (interface{}, error) {
 
 	parts, err := splitPath(path)
 	if err != nil {
@@ -162,8 +190,12 @@ func (n *NestedJson) Set(path string, val interface{}) error {
 
 }
 
+func (n *NestedJson) Data() map[string]interface{} {
+	return n.data
+}
+
 func (n *NestedJson) String(path string) (string, error) {
-	o, err := n.Interface(path)
+	o, err := n.Get(path)
 	if err != nil {
 		return "", err
 	}
@@ -176,7 +208,7 @@ func (n *NestedJson) String(path string) (string, error) {
 }
 
 func (n *NestedJson) Int(path string) (int, error) {
-	o, err := n.Interface(path)
+	o, err := n.Get(path)
 	if err != nil {
 		return 0, err
 	}
@@ -191,7 +223,7 @@ func (n *NestedJson) Int(path string) (int, error) {
 }
 
 func (n *NestedJson) Float(path string) (float64, error) {
-	o, err := n.Interface(path)
+	o, err := n.Get(path)
 	if err != nil {
 		return 0, err
 	}
@@ -206,7 +238,7 @@ func (n *NestedJson) Float(path string) (float64, error) {
 }
 
 func (n *NestedJson) Bool(path string) (bool, error) {
-	o, err := n.Interface(path)
+	o, err := n.Get(path)
 	if err != nil {
 		return false, err
 	}
@@ -219,7 +251,7 @@ func (n *NestedJson) Bool(path string) (bool, error) {
 }
 
 func (n *NestedJson) Array(path string) ([]interface{}, error) {
-	o, err := n.Interface(path)
+	o, err := n.Get(path)
 	if err != nil {
 		return nil, err
 	}
@@ -232,7 +264,7 @@ func (n *NestedJson) Array(path string) ([]interface{}, error) {
 }
 
 func (n *NestedJson) Map(path string) (map[string]interface{}, error) {
-	o, err := n.Interface(path)
+	o, err := n.Get(path)
 	if err != nil {
 		return nil, err
 	}

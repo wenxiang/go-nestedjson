@@ -6,7 +6,24 @@ import (
 )
 
 var jsonStrings = map[string]string{
-	"s1": `{"a": 1, "b": "moo", "c": true, "d": 1.2}`,
+	"s1": `{
+		"a": 1, 
+		"b": "moo", 
+		"c": true, 
+		"d": 1.2
+	}`,
+
+	"s2": `{
+		"a": {
+			"b": "moo",
+			"c": 1,
+			"d": false
+		},
+		"b": 0,
+		"c": [1,2,3],
+		"d": [[0, 1], {"a": 1}, [{"b": 2}, {"c": 3}]]
+	}`,
+
 	"complex": `{
 	  "a": {
 	    "b": {
@@ -38,8 +55,9 @@ var jsonStrings = map[string]string{
 	}`,
 }
 
-func getNestedJson(name string) *NestedJson {
-	n, _ := Decode([]byte(jsonStrings[name]))
+func getTestJson(t *testing.T, name string) *NestedJson {
+	n, err := DecodeStr(jsonStrings[name])
+	assert.NoError(t, err, "JSON Decode failed: %s", name)
 	return n
 }
 
@@ -82,7 +100,7 @@ func TestSplitPathErrors(t *testing.T) {
 }
 
 func TestGetSimple(t *testing.T) {
-	json := getNestedJson("s1")
+	json := getTestJson(t, "s1")
 	testPaths := []struct {
 		path string
 		val  interface{}
@@ -94,14 +112,14 @@ func TestGetSimple(t *testing.T) {
 	}
 
 	for _, i := range testPaths {
-		v, err := json.Interface(i.path)
+		v, err := json.Get(i.path)
 		assert.Nil(t, err)
 		assert.Equal(t, v, i.val)
 	}
 }
 
 func TestGetComplex(t *testing.T) {
-	json := getNestedJson("complex")
+	json := getTestJson(t, "complex")
 	testPaths := []struct {
 		path string
 		val  interface{}
@@ -122,8 +140,96 @@ func TestGetComplex(t *testing.T) {
 	}
 
 	for _, i := range testPaths {
-		v, err := json.Interface(i.path)
+		v, err := json.Get(i.path)
 		assert.Nil(t, err)
 		assert.Equal(t, v, i.val, i.path)
 	}
+}
+
+func TestGetErrors(t *testing.T) {
+	json := getTestJson(t, "s2")
+	testPaths := []struct {
+		path      string
+		errString string
+	}{
+		{"a.b.e", "moo is not an object"},
+		{"a.f.m.a", "Key does not exist"},
+		{"a[0]", "not an array"},
+		{"c[10]", "out of bounds"},
+		{"d[0][5]", "out of bounds"},
+		{"d[1].b", "does not exist"},
+		{"d[2][0].b.e", "not an object"},
+		{"d[2][0].c", "does not exist"},
+	}
+
+	for _, i := range testPaths {
+		_, err := json.Get(i.path)
+		if assert.Error(t, err) {
+			assert.Contains(t, err.Error(), i.errString, i.path)
+		}
+	}
+}
+
+func TestSetNew(t *testing.T) {
+	json := New()
+	tests := []struct {
+		path string
+		val  interface{}
+	}{
+		{"a.b.c", 1},
+		{"a.b.d", "moo"},
+		{"b", []interface{}{1, 2, 3}},
+		{"b[0]", 4},
+		{"c", map[string]interface{}{
+			"A": 1, "B": 1.2, "C": true,
+		}},
+		{"c.A", false},
+		{"c.A", "X"},
+		{"c.B", 4.5},
+		{"b[0]", []interface{}{1.2, 1.3, 1.4}},
+		{"b[0][0]", []interface{}{"a", "b", "c"}},
+		{"b[0][0][1]", "FUU"},
+	}
+
+	for _, i := range tests {
+		json.Set(i.path, i.val)
+		v, err := json.Get(i.path)
+		assert.NoError(t, err)
+		assert.Equal(t, i.val, v, "%s != %s", i.path, i.val)
+	}
+
+	jsonString, err := json.EncodeStr()
+	assert.NoError(t, err)
+	assert.Equal(t, jsonString,
+		`{"a":{"b":{"c":1,"d":"moo"}},"b":[[["a","FUU","c"],`+
+			`1.3,1.4],2,3],"c":{"A":"X","B":4.5,"C":true}}`)
+}
+
+func TestSetExisting(t *testing.T) {
+	json := getTestJson(t, "s2")
+	tests := []struct {
+		path string
+		val  interface{}
+	}{
+		{"a.b", map[string]interface{}{
+			"x": 0.5, "y": 10,
+		}},
+		{"c[0]", "xxx"},
+		{"b", []interface{}{1, 2, 3, 4, 5}},
+		{"d[1].a", "zzz"},
+	}
+
+	for _, i := range tests {
+		json.Set(i.path, i.val)
+		v, err := json.Get(i.path)
+		assert.NoError(t, err)
+		assert.Equal(t, i.val, v, "%s != %s", i.path, i.val)
+	}
+
+	jsonString, err := json.EncodeStr()
+	assert.NoError(t, err)
+	assert.Equal(t, jsonString,
+		`{"a":{"b":{"x":0.5,"y":10},"c":1,"d":false},`+
+			`"b":[1,2,3,4,5],"c":["xxx",2,3],"d":[[0,1],`+
+			`{"a":"zzz"},[{"b":2},{"c":3}]]}`)
 }
