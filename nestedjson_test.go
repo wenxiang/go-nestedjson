@@ -1,8 +1,9 @@
 package nestedjson
 
 import (
-	"github.com/stretchr/testify/assert"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 var jsonStrings = map[string]string{
@@ -88,6 +89,7 @@ func TestSplitPathErrors(t *testing.T) {
 		"a..b.",
 		"..",
 		"a[[2]",
+		"a[2",
 		"[]",
 		"a[0.",
 		"a[0].[1]",
@@ -95,7 +97,7 @@ func TestSplitPathErrors(t *testing.T) {
 
 	for _, item := range errorPaths {
 		_, err := splitPath(item)
-		assert.Error(t, err)
+		assert.Error(t, err, "Error was expected for path: %s", item)
 	}
 }
 
@@ -114,7 +116,7 @@ func TestGetSimple(t *testing.T) {
 	for _, i := range testPaths {
 		v, err := json.Get(i.path)
 		assert.Nil(t, err)
-		assert.Equal(t, v, i.val)
+		assert.EqualValues(t, v, i.val)
 	}
 }
 
@@ -142,7 +144,7 @@ func TestGetComplex(t *testing.T) {
 	for _, i := range testPaths {
 		v, err := json.Get(i.path)
 		assert.Nil(t, err)
-		assert.Equal(t, v, i.val, i.path)
+		assert.EqualValues(t, v, i.val, i.path)
 	}
 }
 
