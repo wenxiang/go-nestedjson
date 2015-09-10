@@ -2,53 +2,104 @@ package nestedjson
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
-	"regexp"
 	"strconv"
-	"strings"
 )
-
-var partRe, _ = regexp.Compile(`^([A-Za-z0-9_]*)((\[[0-9]+\])+)*$`)
-var arrayIndexRe, _ = regexp.Compile(`\[([0-9]+)\]`)
 
 type NestedJson struct {
 	data map[string]interface{}
 }
 
 func splitPath(path string) ([]interface{}, error) {
-	var rv []interface{}
-	parts := strings.Split(path, ".")
-	for i, part := range parts {
-		if part == "" {
-			return nil, errors.New("Invalid path: " + path)
-		}
-		partMatches := partRe.FindStringSubmatch(part)
-		if len(partMatches) == 0 {
-			return nil, errors.New("Invalid part: " + part)
-		}
-		// abc[0][1][2]
-		objKey := partMatches[1]       //abc
-		arrayIndexes := partMatches[2] // [0][1][2]
+	const (
+		Blank = iota
+		Key
+		Dot
+		StartArrayIndex
+		ArrayIndex
+		EndArrayIndex
+	)
 
-		if objKey == "" {
-			if i > 0 {
-				return nil, errors.New("Invalid path: " + path)
+	var parts []interface{}
+	startPos := 0
+	pos := 0
+	state := Blank
+
+	for pos = 0; pos < len(path); pos++ {
+		c := path[pos]
+		switch {
+
+		case c == '.':
+			switch state {
+			case Blank, StartArrayIndex, Dot, ArrayIndex:
+				return nil, fmt.Errorf("Invalid path: %s, pos: %d", path, pos)
+			case Key:
+				parts = append(parts, path[startPos:pos])
+				state = Dot
+			case EndArrayIndex:
+				state = Dot
 			}
-		} else {
-			rv = append(rv, objKey)
-		}
 
-		if arrayIndexes != "" {
-			arrayIndexMatches := arrayIndexRe.FindAllStringSubmatch(arrayIndexes, -1)
-			for _, indexMatch := range arrayIndexMatches {
-				intIndex, _ := strconv.Atoi(indexMatch[1])
-				rv = append(rv, intIndex)
+		case c == '[':
+			switch state {
+			case Blank, EndArrayIndex:
+				state = StartArrayIndex
+			case StartArrayIndex, Dot:
+				return nil, fmt.Errorf("Invalid path: %s, pos: %d", path, pos)
+			case Key:
+				parts = append(parts, path[startPos:pos])
+				state = StartArrayIndex
+			}
+
+		case c == ']':
+			switch state {
+			case Blank, Key, StartArrayIndex, EndArrayIndex, Dot:
+				return nil, fmt.Errorf("Invalid path: %s, pos: %d", path, pos)
+			case ArrayIndex:
+				i, _ := strconv.Atoi(path[startPos:pos])
+				parts = append(parts, i)
+				state = EndArrayIndex
+			}
+
+		case 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || c == '_':
+			switch state {
+			case Blank, Key:
+				state = Key
+			case Dot:
+				state = Key
+				startPos = pos
+			case StartArrayIndex, EndArrayIndex, ArrayIndex:
+				return nil, fmt.Errorf("Invalid path: %s, pos: %d", path, pos)
+			}
+
+		case '0' <= c && c <= '9':
+			switch state {
+			case Blank, Key:
+				state = Key
+			case Dot:
+				state = Key
+				startPos = pos
+			case StartArrayIndex:
+				state = ArrayIndex
+				startPos = pos
+			case ArrayIndex:
+				state = ArrayIndex
+			case EndArrayIndex:
+				return nil, fmt.Errorf("Invalid path: %s, pos: %d", path, pos)
 			}
 		}
 	}
-	return rv, nil
+
+	switch state {
+	case EndArrayIndex:
+	case Key:
+		parts = append(parts, path[startPos:pos])
+	default:
+		return nil, fmt.Errorf("Invalid path: %s, pos: %d", path, pos)
+	}
+
+	return parts, nil
 }
 
 func getPart(obj interface{}, part interface{},
@@ -60,10 +111,10 @@ func getPart(obj interface{}, part interface{},
 			if p < len(arr) {
 				return arr[p], nil
 			} else {
-				return nil, errors.New(fmt.Sprintf("Array index out of bounds: %d", p))
+				return nil, fmt.Errorf("Array index out of bounds: %d", p)
 			}
 		} else {
-			return nil, errors.New(fmt.Sprintf("%s is not an array: %T", obj, obj))
+			return nil, fmt.Errorf("%s is not an array: %T", obj, obj)
 		}
 
 	case string:
@@ -76,13 +127,13 @@ func getPart(obj interface{}, part interface{},
 					m[p] = rv
 					return rv, nil
 				}
-				return nil, errors.New(fmt.Sprintf("Key does not exist: %s", p))
+				return nil, fmt.Errorf("Key does not exist: %s", p)
 			}
 		} else {
-			return nil, errors.New(fmt.Sprintf("%s is not an object: %T", obj, obj))
+			return nil, fmt.Errorf("%s is not an object: %T", obj, obj)
 		}
 	}
-	return nil, errors.New(fmt.Sprintf("Invalid Part: %T", part))
+	return nil, fmt.Errorf("Invalid Part: %T", part)
 }
 
 func New(args ...map[string]interface{}) *NestedJson {
@@ -175,14 +226,14 @@ func (n *NestedJson) Set(path string, val interface{}) error {
 		if arr, ok := curr.([]interface{}); ok {
 			arr[k] = val
 		} else {
-			return errors.New(fmt.Sprintf("Not an array: %s", curr))
+			return fmt.Errorf("Not an array: %s", curr)
 		}
 
 	case string:
 		if m, ok := curr.(map[string]interface{}); ok {
 			m[k] = val
 		} else {
-			return errors.New(fmt.Sprintf("Not an object: %s", curr))
+			return fmt.Errorf("Not an object: %s", curr)
 		}
 	}
 
@@ -203,7 +254,7 @@ func (n *NestedJson) String(path string) (string, error) {
 	case string:
 		return rv, nil
 	default:
-		return "", errors.New(fmt.Sprintf("%s is not a string", path, o))
+		return "", fmt.Errorf("%s is not a string", path, o)
 	}
 }
 
@@ -218,7 +269,7 @@ func (n *NestedJson) Int(path string) (int, error) {
 	case float64:
 		return int(rv), nil
 	default:
-		return 0, errors.New(fmt.Sprintf("%s is not an integer", path, o))
+		return 0, fmt.Errorf("%s is not an integer", path, o)
 	}
 }
 
@@ -233,7 +284,7 @@ func (n *NestedJson) Float(path string) (float64, error) {
 	case float64:
 		return rv, nil
 	default:
-		return 0, errors.New(fmt.Sprintf("%s is not a float", path, o))
+		return 0, fmt.Errorf("%s is not a float", path, o)
 	}
 }
 
@@ -246,7 +297,7 @@ func (n *NestedJson) Bool(path string) (bool, error) {
 	case bool:
 		return rv, nil
 	default:
-		return false, errors.New(fmt.Sprintf("%s is not a bool", path, o))
+		return false, fmt.Errorf("%s is not a bool", path, o)
 	}
 }
 
@@ -259,7 +310,7 @@ func (n *NestedJson) Array(path string) ([]interface{}, error) {
 	case []interface{}:
 		return rv, nil
 	default:
-		return nil, errors.New(fmt.Sprintf("%s is not an Array", path, o))
+		return nil, fmt.Errorf("%s is not an Array", path, o)
 	}
 }
 
@@ -272,6 +323,6 @@ func (n *NestedJson) Map(path string) (map[string]interface{}, error) {
 	case map[string]interface{}:
 		return rv, nil
 	default:
-		return nil, errors.New(fmt.Sprintf("%s is not a map", path, o))
+		return nil, fmt.Errorf("%s is not a map", path, o)
 	}
 }
